@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Avisos</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#6C5CE7">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+:root{--bg:#6C5CE7;--ink:#1B1F3B;--coral:#FF5D73;--white:#FFFDF5;--sun:#FFD23F;--mint:#3DDC97}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--white);font-family:"Trebuchet MS",system-ui,sans-serif}
+body{padding:env(safe-area-inset-top) 20px env(safe-area-inset-bottom);display:flex;flex-direction:column;align-items:center}
+main{flex:1;width:100%;max-width:420px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:16px}
+#bell{width:140px;height:140px;border-radius:36px;background:var(--white);border:5px solid var(--ink);box-shadow:0 8px 0 var(--ink);display:grid;place-items:center;transform:rotate(-6deg);transition:background .3s}
+#bell.on{background:var(--sun);animation:ring 1.2s ease 1}
+@keyframes ring{0%,100%{transform:rotate(-6deg)}20%{transform:rotate(14deg)}40%{transform:rotate(-16deg)}60%{transform:rotate(8deg)}80%{transform:rotate(-10deg)}}
+h1{margin:6px 0 0;font-size:2.4rem;font-weight:900;letter-spacing:-1px}
+#msg{margin:0;font-size:1.05rem;font-weight:700;max-width:30ch;line-height:1.35}
+button{font:900 1.1rem "Trebuchet MS",sans-serif;width:100%;padding:16px;border:4px solid var(--ink);border-radius:18px;color:var(--ink);box-shadow:0 6px 0 var(--ink)}
+button:active{transform:translateY(5px);box-shadow:0 1px 0 var(--ink)}
+#btn{background:var(--mint)}
+#btn.off{background:var(--white)}
+#btn:disabled{opacity:.5}
+#install{display:none;background:var(--sun)}
+#hint{display:none;font-size:.85rem;font-weight:700;background:var(--ink);color:var(--white);padding:10px 14px;border-radius:14px;word-break:break-word}
+footer{padding:10px 0 14px;font-size:.8rem;font-weight:700}
+@media(prefers-reduced-motion:reduce){#bell.on{animation:none}}
+</style>
+</head>
+<body>
+<main>
+  <div id="bell"><svg width="76" height="76" viewBox="0 0 24 24" fill="none" stroke="#1B1F3B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div>
+  <h1>Avisos</h1>
+  <p id="msg">Activa las notificaciones para recibir los avisos.</p>
+  <button id="btn">Activar notificaciones</button>
+  <button id="install">Instalar app</button>
+  <div id="hint"></div>
+</main>
+<footer>Versión <b id="ver">3.0</b> · <span id="net">conectando…</span></footer>
+
+<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+<script>
+const base = location.pathname.replace(/[^/]*$/, "");
+const $ = id => document.getElementById(id);
+const isiOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+let OS = null, failed = false;
+
+function hint(t){ const h = $("hint"); h.textContent = t; h.style.display = t ? "block" : "none"; }
+
+// ---- Botón instalar (no depende de OneSignal) ----
+let dp;
+addEventListener("beforeinstallprompt", e => { e.preventDefault(); dp = e; $("install").style.display = "block"; });
+$("install").onclick = async () => { if (dp) { dp.prompt(); await dp.userChoice; dp = null; $("install").style.display = "none"; } };
+addEventListener("appinstalled", () => { $("install").style.display = "none"; });
+
+// ---- Pintar estado ----
+function paint() {
+  const opted = OS ? OS.User.PushSubscription.optedIn : false;
+  const denied = ("Notification" in window) && Notification.permission === "denied";
+  $("bell").className = opted ? "on" : "";
+  $("btn").className = opted ? "off" : "";
+  $("btn").disabled = denied;
+  $("btn").textContent = opted ? "Desactivar avisos" : "Activar notificaciones";
+  $("msg").textContent = opted ? "Listo. Te llegarán los avisos aunque la app esté cerrada." : "Activa las notificaciones para recibir los avisos.";
+  if (failed) return;
+  if (denied) hint("Bloqueaste las notificaciones. Actívalas en los ajustes del navegador para este sitio.");
+  else if (isiOS && !standalone) hint("En iPhone: toca Compartir → Agregar a pantalla de inicio y abre la app desde ahí.");
+  else hint("");
+}
+
+// ---- OneSignal ----
+window.OneSignalDeferred = window.OneSignalDeferred || [];
+OneSignalDeferred.push(async function (OneSignal) {
+  try {
+    await OneSignal.init({
+      appId: "28970e60-0248-45dc-a58e-88f6cd73173b",
+      serviceWorkerPath: base + "service-worker.js",
+      serviceWorkerParam: { scope: base },
+      notifyButton: { enable: false }
+    });
+    OS = OneSignal;
+    OS.User.PushSubscription.addEventListener("change", paint);
+    $("net").textContent = "listo";
+    paint();
+  } catch (e) {
+    failed = true;
+    $("net").textContent = "con error";
+    hint("Error de OneSignal: " + (e && e.message ? e.message : e));
+  }
+});
+
+setTimeout(() => {
+  if (!OS && !failed) hint("OneSignal no responde. Revisa tu internet y recarga la página.");
+}, 8000);
+
+// ---- Botón principal ----
+$("btn").onclick = async () => {
+  if (!OS) { hint(failed ? $("hint").textContent : "Todavía conectando… intenta en unos segundos."); return; }
+  $("btn").disabled = true;
+  try {
+    if (OS.User.PushSubscription.optedIn) {
+      await OS.User.PushSubscription.optOut();
+    } else {
+      await OS.Notifications.requestPermission();
+      if (Notification.permission === "granted") await OS.User.PushSubscription.optIn();
+    }
+  } catch (e) { hint("Error: " + (e && e.message ? e.message : e)); }
+  $("btn").disabled = false;
+  paint();
+};
+
+// ---- Estado de conexión del cel ----
+function net(){ if (!OS && !failed) $("net").textContent = navigator.onLine ? "conectando…" : "sin internet"; }
+addEventListener("online", net); addEventListener("offline", net); net();
+
+// ---- Recarga automática cuando hay versión nueva ----
+if ("serviceWorker" in navigator) {
+  let had = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (had) location.reload(); had = true; });
+}
+</script>
+</body>
+</html>
